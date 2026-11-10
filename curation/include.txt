@@ -5,3 +5,8 @@
 # To edit in the browser: open this file on GitHub, click the pencil icon,
 # add a line, then "Commit changes". The site rebuilds within a few minutes.
 
+41563907  # Increasing X-ray energy improves data quality in serial crystallography
+41480784  # Radiation damage and the case for unpatterned fixed targets
+41131136  # Partial orientation retrieval of proteins from XFEL data (SPI)
+39608942  # Experimental approaches for time-resolved serial femtosecond crystallography
+38638699  # Kilohertz droplet-on-demand serial femtosecond crystallography

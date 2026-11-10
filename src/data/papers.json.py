@@ -229,26 +229,51 @@ BIO_TERMS = [
     r"metalloprotein", r"\bPSII\b", r"oxygen[- ]evolving", r"Mn4CaO5", r"\bactin\b", r"myosin",
     r"biolog", r"\bcells?\b", r"drug",
 ]
+# Hard non-bio topics: these hold a paper back unless it also has clear bioscience terms.
 OTHER_TERMS = [
     r"perovskite", r"nanoparticle", r"\bmaterials?\b", r"\balloys?\b", r"metal oxide", r"semiconductor",
-    r"\bplasmas?\b", r"warm dense", r"shock[- ]?(wave|compress|ed)", r"laser[- ]driven", r"magneti[cz]",
+    r"\bplasmas?\b", r"warm dense", r"shock[- ]?(wave|compress|ed)", r"magneti[cz]",
     r"\bspin\b", r"ferroelectric", r"superconduct", r"thin films?", r"graphene", r"phonon",
-    r"accelerator", r"undulator", r"electron (beam|bunch)", r"\blasing\b", r"\bSASE\b", r"self-seed",
-    r"beamline design", r"detector", r"commissioning", r"upgrade", r"X-ray optics", r"attosecond",
-    r"gas[- ]phase", r"photoioni[sz]ation", r"\bionization\b", r"metal-organic framework", r"\bMOFs?\b",
-    r"zeolite", r"batter(y|ies)", r"electrode", r"photovoltaic", r"solar cell", r"spin[- ]crossover",
-    r"transition[- ]metal complex", r"coordination complex", r"heterogeneous catalys", r"liquid metal",
-    r"high[- ]pressure", r"diamond anvil", r"\bmelting\b",
+    r"attosecond", r"gas[- ]phase", r"photoioni[sz]ation", r"\bionization\b", r"metal-organic framework",
+    r"\bMOFs?\b", r"zeolite", r"batter(y|ies)", r"electrode", r"photovoltaic", r"solar cell",
+    r"spin[- ]crossover", r"transition[- ]metal complex", r"coordination complex", r"heterogeneous catalys",
+    r"liquid metal", r"high[- ]pressure", r"diamond anvil", r"\bmelting\b",
 ]
+# Machine and instrument topics: only hold a paper back when nothing points to (macro)molecular crystallography.
+INSTRUMENT_TERMS = [
+    r"accelerator", r"undulator", r"electron (beam|bunch)", r"\blasing\b", r"\bSASE\b", r"self-seed",
+    r"beamline design", r"detector", r"commissioning", r"upgrade", r"X-ray optics", r"laser[- ]driven",
+]
+# Methods for (macro)molecular crystallography and imaging: these papers belong on the site
+# even without a named protein (sample delivery, data quality, radiation damage, SPI...).
+MX_TERMS = [
+    r"serial (femtosecond |synchrotron |millisecond )?crystallograph", r"\bS[FS]X\b", r"\bTR-S[FS]X\b",
+    r"macromolecular crystallograph", r"protein crystallograph", r"time-resolved (X-ray )?crystallograph",
+    r"microcrystals?", r"fixed[- ]targets?", r"sample delivery", r"radiation damage", r"droplet[- ]on[- ]demand",
+    r"\bLaue\b", r"single[- ]particle imaging", r"\bSPI\b", r"diffraction before destruction",
+    r"mix(-and-|ing )inject", r"pump[- ]probe crystallograph",
+]
+
 BIO_RE = [re.compile(t, re.I) for t in BIO_TERMS]
 OTHER_RE = [re.compile(t, re.I) for t in OTHER_TERMS]
+INSTR_RE = [re.compile(t, re.I) for t in INSTRUMENT_TERMS]
+MX_RE = [re.compile(t, re.I) for t in MX_TERMS]
+
+
+def hits(regexes, text):
+    return sorted({m.group(0).lower() for rx in regexes if (m := rx.search(text))})
 
 
 def relevance(text):
-    bio = sorted({rx.search(text).group(0).lower() for rx in BIO_RE if rx.search(text)})
-    other = sorted({rx.search(text).group(0).lower() for rx in OTHER_RE if rx.search(text)})
-    keep = (len(bio) >= 2 and len(bio) > len(other)) or (len(bio) >= 1 and not other)
-    return keep, bio, other
+    bio, other = hits(BIO_RE, text), hits(OTHER_RE, text)
+    instr, mx = hits(INSTR_RE, text), hits(MX_RE, text)
+    keep = (
+        (bio and not other)                                   # bioscience, no materials/physics topic
+        or (len(bio) >= 2 and len(bio) > len(other))          # mixed, but bioscience dominates
+        or (mx and not other)                                 # crystallography/imaging method paper
+    )
+    # Instrument terms alone never keep a paper; they only matter when nothing else applies.
+    return bool(keep), bio + mx, other + instr
 
 
 SERVER_NAMES = {"biorxiv": "bioRxiv", "medrxiv": "medRxiv", "res sq": "Research Square",
@@ -533,6 +558,8 @@ def main():
         e["curated"] = bool({(e["pmid"] or "").lower(), (e["doi"] or "").lower()} & include)
         keep, bio, other = relevance(f"{e['title']} {e['abstract']} {' '.join(e.pop('mesh', []))}")
         e["status"] = "shown" if (keep or e["curated"]) else "review"
+        if e["curated"] and not keep:
+            log(f"  Curated paper the rules would hold back: {e['pmid'] or e['doi']}  bio={bio} other={other}")
         e["bio_terms"], e["other_terms"] = bio, other
         people, inferred = e.pop("corresponding")
         e["corresponding"] = {"people": people, "inferred": inferred}
