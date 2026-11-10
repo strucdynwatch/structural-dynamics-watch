@@ -12,7 +12,7 @@ export default {
   ],
   head: '<meta name="robots" content="index,follow">',
   // A "Home" link at the top of every page, in addition to the sidebar.
-  header: '<a href="/structural-dynamics-watch/" style="font-weight:600;text-decoration:none;">← Home</a>',
+  header: '<a href="/" style="font-weight:600;text-decoration:none;">← Home</a>',
   footer: "Structural Dynamics Watch · updated nightly · data from PubMed, bioRxiv and the RCSB PDB",
   search: true
 };
