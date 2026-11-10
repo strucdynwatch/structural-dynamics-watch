@@ -5,3 +5,10 @@
 # To edit in the browser: open this file on GitHub, click the pencil icon,
 # add a line, then "Commit changes". The site rebuilds within a few minutes.
 
+10.1021/jacs.6c12462            # Ni-Ir catalysis, chemistry
+10.1038/s42004-026-02177-2      # vapour films in amorphous ice
+10.1107/s1600577526004911       # air attenuation of XFEL beams, instrumentation
+10.1002/cbic.70376              # melatonin MT1, NMR study (only cites XFEL work)
+10.1107/s1600577526003735       # liquid jets for ultrafast chemistry at Alvra
+10.1364/ao.586951               # B4C-coated XFEL mirrors, optics
+10.1038/s41467-026-71635-1      # solvation dynamics of an organic chromophore

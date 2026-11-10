@@ -238,6 +238,12 @@ OTHER_TERMS = [
     r"\bMOFs?\b", r"zeolite", r"batter(y|ies)", r"electrode", r"photovoltaic", r"solar cell",
     r"spin[- ]crossover", r"transition[- ]metal complex", r"coordination complex", r"heterogeneous catalys",
     r"liquid metal", r"high[- ]pressure", r"diamond anvil", r"\bmelting\b",
+    # chemistry
+    r"organometallic", r"photocatalys", r"(nickel|iridium|palladium|platinum|ruthenium|rhodium|cobalt|copper|gold|\bNi|\bIr|\bPd|\bPt|\bRu)[- ]?(\w+ )?catalys",
+    r"\bsolvation\b", r"organic (chromophore|molecule|dye)", r"ultrafast chemistry", r"\bsolvents?\b",
+    r"amorphous ice", r"\bvapou?r\b", r"thermal (resistance|conductiv)",
+    # X-ray optics and beam transport
+    r"\bmirrors?\b", r"\bcoat(ed|ing)\b", r"attenuat", r"beam transport", r"wavefront",
 ]
 # Machine and instrument topics: only hold a paper back when nothing points to (macro)molecular crystallography.
 INSTRUMENT_TERMS = [
