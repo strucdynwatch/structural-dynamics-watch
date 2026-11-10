@@ -180,6 +180,28 @@ AFF_FACILITIES = {
 AFF_RE = {k: re.compile(v, re.I) for k, v in AFF_FACILITIES.items()}
 
 
+def clean_aff(aff):
+    """Full affiliation without e-mail addresses (no e-mails are published on the site)."""
+    aff = re.sub(r"(Electronic address|E-?mail|Email)\s*:?.*$", "", aff or "", flags=re.I)
+    aff = re.sub(r"\S+@\S+", "", aff)
+    return re.sub(r"\s+", " ", aff).strip(" .,;")
+
+
+def corresponding(people):
+    """people: list of (name, [raw affiliations]). Corresponding authors are those whose affiliation
+    carries an e-mail address (PubMed's convention). Falls back to the last author."""
+    marked = [(n, a) for n, a in people if any("@" in x or "electronic address" in x.lower() for x in a)]
+    inferred = not marked
+    if inferred:
+        marked = [p for p in people[-1:] if p[1]]
+    out = []
+    for n, affs in marked:
+        cleaned = list(dict.fromkeys(c for c in (clean_aff(x) for x in affs) if c))
+        if cleaned:
+            out.append({"name": n, "affiliations": cleaned})
+    return out, inferred
+
+
 def facilities(text, affiliations=""):
     """Facilities named in the title/abstract, plus facilities that co-authors are affiliated with."""
     found = {k: "abstract" for k, rx in FAC_RE.items() if rx.search(text or "")}
@@ -226,6 +248,9 @@ def relevance(text):
     keep = (len(bio) >= 2 and len(bio) > len(other)) or (len(bio) >= 1 and not other)
     return keep, bio, other
 
+
+SERVER_NAMES = {"biorxiv": "bioRxiv", "medrxiv": "medRxiv", "res sq": "Research Square",
+                "arxiv": "arXiv", "chemrxiv": "ChemRxiv"}
 
 # ---------------------------------------------------------------- PubMed
 
@@ -294,7 +319,7 @@ def parse_pubmed(xml_bytes):
             for e in a.findall("ELocationID"):
                 if e.get("EIdType") == "doi":
                     doi = e.text or ""
-        authors, affs = [], []
+        authors, affs, people = [], [], []
         for au in a.findall("AuthorList/Author"):
             if au.findtext("CollectiveName"):
                 authors.append(au.findtext("CollectiveName"))
@@ -303,8 +328,11 @@ def parse_pubmed(xml_bytes):
             last = au.findtext("LastName") or ""
             ini = au.findtext("Initials") or ""
             if last:
-                authors.append(f"{last} {ini}".strip())
-                affs.append(" | ".join(x.text or "" for x in au.findall("AffiliationInfo/Affiliation")))
+                name = f"{last} {ini}".strip()
+                raw = [x.text or "" for x in au.findall("AffiliationInfo/Affiliation") if x.text]
+                authors.append(name)
+                affs.append(" | ".join(raw))
+                people.append((name, raw))
         aff = next((x.split(" | ")[0] for x in reversed(affs) if x), "")
         ptypes = [t.text for t in a.findall("PublicationTypeList/PublicationType") if t.text]
         mesh = [m.text for m in mc.findall("MeshHeadingList/MeshHeading/DescriptorName") if m.text]
@@ -314,6 +342,7 @@ def parse_pubmed(xml_bytes):
             "journal": journal, "date": date, "authors": authors,
             "institution": short_inst(aff), "pubtypes": ptypes,
             "affiliations": " | ".join(sorted(set(x for x in affs if x))), "mesh": mesh,
+            "corresponding": corresponding(people),
         })
     return out
 
@@ -352,12 +381,13 @@ def epmc_preprints():
         doi = norm_doi(r.get("doi"))
         if not doi.startswith("10.1101/"):
             continue  # keep bioRxiv (and medRxiv, same DOI prefix)
-        authors, aff, all_affs = [], "", set()
+        authors, aff, all_affs, people = [], "", set(), []
         for au in (r.get("authorList") or {}).get("author", []):
             name = f"{au.get('lastName', '')} {au.get('initials', '')}".strip() or au.get("fullName") or au.get("collectiveName", "")
+            details = (au.get("authorAffiliationDetailsList") or {}).get("authorAffiliation", [])
             if name:
                 authors.append(name)
-            details = (au.get("authorAffiliationDetailsList") or {}).get("authorAffiliation", [])
+                people.append((name, [d["affiliation"] for d in details if d.get("affiliation")]))
             all_affs.update(d.get("affiliation", "") for d in details if d.get("affiliation"))
             if details and details[0].get("affiliation"):
                 aff = details[0]["affiliation"]  # ends up as the last author's
@@ -368,6 +398,7 @@ def epmc_preprints():
             "authors": authors, "institution": short_inst(aff),
             "server": (r.get("bookOrReportDetails") or {}).get("publisher") or "bioRxiv",
             "affiliations": " | ".join(sorted(all_affs)),
+            "corresponding": corresponding(people),
         })
     return out
 
@@ -396,6 +427,8 @@ def biorxiv_record(doi):
         "doi": norm_doi(doi), "title": c.get("title", ""), "abstract": c.get("abstract", ""),
         "date": coll[0].get("date", ""), "authors": authors,
         "institution": short_inst(c.get("author_corresponding_institution", "")), "server": "bioRxiv",
+        "corresponding": ([{"name": c.get("author_corresponding", ""),
+                            "affiliations": [clean_aff(c.get("author_corresponding_institution", ""))]}], False),
         "published": "" if (c.get("published") or "NA").upper() == "NA" else norm_doi(c.get("published")),
     }
 
@@ -422,7 +455,24 @@ def main():
         inc_pmids.update(ids)
     articles = pubmed_fetch(sorted(set(pmids) | inc_pmids, key=int))
 
-    preprints = epmc_preprints()
+    # PubMed also indexes preprints (bioRxiv, Research Square, arXiv...). Treat those as preprints.
+    def is_preprint(a):
+        return ("Preprint" in a["pubtypes"] or a["doi"].startswith("10.1101/")
+                or a["journal"].lower() in SERVER_NAMES)
+    pm_pre = [a for a in articles if is_preprint(a)]
+    articles = [a for a in articles if not is_preprint(a)]
+    log(f"PubMed: {len(articles)} journal articles, {len(pm_pre)} preprints")
+    epmc = {p["doi"]: p for p in epmc_preprints()}
+    preprints = []
+    for a in pm_pre:
+        epmc.pop(a["doi"], None)  # same preprint found twice: keep the PubMed record
+        preprints.append({
+            "doi": a["doi"], "pmid": a["pmid"], "title": a["title"], "abstract": a["abstract"],
+            "date": a["date"], "authors": a["authors"], "institution": a["institution"],
+            "server": SERVER_NAMES.get(a["journal"].lower(), a["journal"]),
+            "affiliations": a["affiliations"], "corresponding": a["corresponding"], "mesh": a["mesh"],
+        })
+    preprints += list(epmc.values())
     known = {p["doi"] for p in preprints}
     for doi in sorted(d for d in inc_dois if d.startswith("10.1101/") and d not in known):
         rec = biorxiv_record(doi)
@@ -446,15 +496,16 @@ def main():
         if target is None:
             target = by_title.get(norm_title(p["title"]))
         if target is not None and target["preprint"] is None:
-            target["preprint"] = {"doi": p["doi"], "date": p["date"], "server": p["server"]}
+            target["preprint"] = {"doi": p["doi"], "date": p["date"], "server": p["server"], "pmid": p.get("pmid", "")}
             merged += 1
         else:
             entries.append({
-                "type": "preprint", "pmid": "", "doi": p["doi"], "title": p["title"],
+                "type": "preprint", "pmid": p.get("pmid", ""), "doi": p["doi"], "title": p["title"],
                 "abstract": p["abstract"], "journal": p["server"], "date": p["date"],
                 "authors": p["authors"], "institution": p["institution"],
                 "published_doi": p["published"], "preprint": None,
-                "affiliations": p.get("affiliations", ""), "mesh": [],
+                "affiliations": p.get("affiliations", ""), "mesh": p.get("mesh", []),
+                "corresponding": p.get("corresponding", ([], True)),
             })
     log(f"Merged {merged} preprints with their published version")
     for a in articles:
@@ -464,6 +515,7 @@ def main():
             "authors": a["authors"], "institution": a["institution"], "published_doi": "",
             "preprint": a["preprint"], "pubtypes": a["pubtypes"],
             "affiliations": a["affiliations"], "mesh": a["mesh"],
+            "corresponding": a["corresponding"],
         })
 
     def excluded(e):
@@ -480,6 +532,8 @@ def main():
         keep, bio, other = relevance(f"{e['title']} {e['abstract']} {' '.join(e.pop('mesh', []))}")
         e["status"] = "shown" if (keep or e["curated"]) else "review"
         e["bio_terms"], e["other_terms"] = bio, other
+        people, inferred = e.pop("corresponding")
+        e["corresponding"] = {"people": people, "inferred": inferred}
     entries.sort(key=lambda e: e["date"] or "", reverse=True)
     n_review = sum(e["status"] == "review" for e in entries)
     log(f"Relevance: {len(entries) - n_review} shown, {n_review} sent to review")

@@ -93,8 +93,11 @@ function paper(p) {
       onclick=${(e) => { e.preventDefault(); pick("facility", f.name); }}>${f.name}${f.via === "affiliation" ? "*" : ""}</a>`);
   const authors = html`<details class="authpop"><summary title="Click for full author list and institution">${authorLine(p.authors)}</summary>
     <div class="pop">
-      ${p.institution ? html`<div><span class="lbl">Last author's institution</span><br>${p.institution}
-        <a href="#" onclick=${(e) => { e.preventDefault(); pick("institution", p.institution); }}>show all papers from here</a></div>` : ""}
+      ${p.corresponding.people.length ? html`<div><span class="lbl">${p.corresponding.inferred
+          ? "Last author (corresponding author not marked)"
+          : p.corresponding.people.length > 1 ? "Corresponding authors" : "Corresponding author"}</span>
+        ${p.corresponding.people.map((c) => html`<div class="corr"><b>${c.name}</b>${c.affiliations.map((x) => html`<br>${x}`)}</div>`)}
+        ${p.institution ? html`<a href="#" onclick=${(e) => { e.preventDefault(); pick("institution", p.institution); }}>Show all papers from ${p.institution}</a>` : ""}</div>` : ""}
       <div><span class="lbl">All authors</span><br>${p.authors.join(", ")}</div>
     </div></details>`;
   return html`<article class="paper">
@@ -140,4 +143,5 @@ details p { font-size: 0.9rem; line-height: 1.5; }
   padding: 0.6rem 0.8rem; font-size: 0.8rem; line-height: 1.45; color: var(--theme-foreground); display: grid; gap: 0.5rem; }
 .authpop .lbl { color: var(--theme-foreground-faint); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
 .authpop .pop a { font-size: 0.78rem; }
+.authpop .corr { margin: 0.25rem 0 0.35rem; }
 </style>
