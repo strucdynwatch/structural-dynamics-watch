@@ -103,6 +103,8 @@ def http(url, params=None, data=None, tries=4, pause=0.0):
                 time.sleep(pause)
             return out
         except (urllib.error.URLError, TimeoutError) as e:
+            if isinstance(e, urllib.error.HTTPError) and e.code == 404:
+                raise  # not found: retrying won't help
             wait = 2 ** attempt
             log(f"  request failed ({e}); retrying in {wait}s")
             time.sleep(wait)
@@ -481,7 +483,7 @@ def main():
     log(f"Preprints: {len(preprints)}; looking up published versions")
     for i, p in enumerate(preprints, 1):
         if "published" not in p:
-            p["published"] = biorxiv_published(p["doi"])
+            p["published"] = biorxiv_published(p["doi"]) if p["doi"].startswith("10.1101/") else ""
         if i % 50 == 0:
             log(f"  {i}/{len(preprints)}")
 
