@@ -33,6 +33,8 @@ jobs:
       - run: npm run build
         env:
           NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
+      - name: Check Home link on every page
+        run: for f in dist/*.html; do echo "$f: $(grep -o '<a href="[^"]*" style="font-weight:600[^>]*>' "$f" || echo MISSING)"; done
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
