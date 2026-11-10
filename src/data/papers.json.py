@@ -157,8 +157,74 @@ def short_inst(aff):
     return parts[0][:90] if parts else ""
 
 
-def facilities(text):
-    return sorted(k for k, rx in FAC_RE.items() if rx.search(text or ""))
+# Stricter patterns for author affiliations: only names that point to one facility.
+# (e.g. "SLAC" alone could mean LCLS or SSRL, "RIKEN SPring-8 Center" could mean SACLA or SPring-8.)
+AFF_FACILITIES = {
+    "LCLS": r"Linac Coherent Light Source|\bLCLS\b",
+    "SACLA": r"\bSACLA\b",
+    "European XFEL": r"European XFEL",
+    "SwissFEL": r"SwissFEL",
+    "PAL-XFEL": r"PAL-XFEL|Pohang Accelerator Laboratory",
+    "ESRF": r"European Synchrotron Radiation Facility|\bESRF\b",
+    "APS / BioCARS": r"BioCARS|Advanced Photon Source",
+    "Diamond": r"Diamond Light Source",
+    "SLS": r"Swiss Light Source",
+    "MAX IV": r"MAX ?IV Laboratory",
+    "SOLEIL": r"Synchrotron SOLEIL",
+    "ALS": r"Advanced Light Source",
+    "NSLS-II": r"National Synchrotron Light Source",
+    "SSRL": r"Stanford Synchrotron Radiation",
+    "Australian Synchrotron": r"Australian Synchrotron",
+    "CLS": r"Canadian Light Source",
+}
+AFF_RE = {k: re.compile(v, re.I) for k, v in AFF_FACILITIES.items()}
+
+
+def facilities(text, affiliations=""):
+    """Facilities named in the title/abstract, plus facilities that co-authors are affiliated with."""
+    found = {k: "abstract" for k, rx in FAC_RE.items() if rx.search(text or "")}
+    for k, rx in AFF_RE.items():
+        if k not in found and rx.search(affiliations or ""):
+            found[k] = "affiliation"
+    return [{"name": k, "via": v} for k, v in sorted(found.items())]
+
+
+# ---------------------------------------------------------------- Relevance
+# Papers are shown on the site only when they look like biosciences / protein dynamics.
+# Everything else goes to the review list (review page) so nothing is lost.
+BIO_TERMS = [
+    r"protein", r"enzym", r"receptor", r"rhodopsin", r"\bopsin", r"photosystem", r"photosynth",
+    r"phytochrome", r"cryptochrome", r"photoreceptor", r"chromophore", r"fluorescent protein", r"\bGFP\b",
+    r"\bLOV\b", r"photoactive yellow", r"\bPYP\b", r"myoglobin", r"h(a)?emoglobin", r"cytochrome",
+    r"oxidase", r"reductase", r"hydrogenase", r"nitrogenase", r"lysozyme", r"thaumatin", r"insulin",
+    r"kinase", r"protease", r"lactamase", r"photolyase", r"isomerase", r"synthase", r"dehydrogenase",
+    r"active site", r"\bresidues?\b", r"amino acid", r"peptide", r"biomolecul", r"macromolecul",
+    r"ribosom", r"\bDNA\b", r"\bRNA\b", r"nucleic", r"\bvir(us|al)\b", r"bacteri", r"membrane protein",
+    r"transporter", r"ion channel", r"antibod", r"substrate", r"catalytic", r"cofactor", r"\bh(a)?em(e)?\b",
+    r"flavin", r"\bFAD\b", r"\bFMN\b", r"retinal", r"allosteri", r"structural biology", r"inhibitor",
+    r"metalloprotein", r"\bPSII\b", r"oxygen[- ]evolving", r"Mn4CaO5", r"\bactin\b", r"myosin",
+    r"biolog", r"\bcells?\b", r"drug",
+]
+OTHER_TERMS = [
+    r"perovskite", r"nanoparticle", r"\bmaterials?\b", r"\balloys?\b", r"metal oxide", r"semiconductor",
+    r"\bplasmas?\b", r"warm dense", r"shock[- ]?(wave|compress|ed)", r"laser[- ]driven", r"magneti[cz]",
+    r"\bspin\b", r"ferroelectric", r"superconduct", r"thin films?", r"graphene", r"phonon",
+    r"accelerator", r"undulator", r"electron (beam|bunch)", r"\blasing\b", r"\bSASE\b", r"self-seed",
+    r"beamline design", r"detector", r"commissioning", r"upgrade", r"X-ray optics", r"attosecond",
+    r"gas[- ]phase", r"photoioni[sz]ation", r"\bionization\b", r"metal-organic framework", r"\bMOFs?\b",
+    r"zeolite", r"batter(y|ies)", r"electrode", r"photovoltaic", r"solar cell", r"spin[- ]crossover",
+    r"transition[- ]metal complex", r"coordination complex", r"heterogeneous catalys", r"liquid metal",
+    r"high[- ]pressure", r"diamond anvil", r"\bmelting\b",
+]
+BIO_RE = [re.compile(t, re.I) for t in BIO_TERMS]
+OTHER_RE = [re.compile(t, re.I) for t in OTHER_TERMS]
+
+
+def relevance(text):
+    bio = sorted({rx.search(text).group(0).lower() for rx in BIO_RE if rx.search(text)})
+    other = sorted({rx.search(text).group(0).lower() for rx in OTHER_RE if rx.search(text)})
+    keep = (len(bio) >= 2 and len(bio) > len(other)) or (len(bio) >= 1 and not other)
+    return keep, bio, other
 
 
 # ---------------------------------------------------------------- PubMed
@@ -238,13 +304,16 @@ def parse_pubmed(xml_bytes):
             ini = au.findtext("Initials") or ""
             if last:
                 authors.append(f"{last} {ini}".strip())
-                affs.append(au.findtext("AffiliationInfo/Affiliation") or "")
-        aff = next((x for x in reversed(affs) if x), "")
+                affs.append(" | ".join(x.text or "" for x in au.findall("AffiliationInfo/Affiliation")))
+        aff = next((x.split(" | ")[0] for x in reversed(affs) if x), "")
         ptypes = [t.text for t in a.findall("PublicationTypeList/PublicationType") if t.text]
+        mesh = [m.text for m in mc.findall("MeshHeadingList/MeshHeading/DescriptorName") if m.text]
+        mesh += [k.text for k in mc.findall("KeywordList/Keyword") if k.text]
         out.append({
             "pmid": pmid, "doi": norm_doi(doi), "title": title, "abstract": abstract,
             "journal": journal, "date": date, "authors": authors,
             "institution": short_inst(aff), "pubtypes": ptypes,
+            "affiliations": " | ".join(sorted(set(x for x in affs if x))), "mesh": mesh,
         })
     return out
 
@@ -283,12 +352,13 @@ def epmc_preprints():
         doi = norm_doi(r.get("doi"))
         if not doi.startswith("10.1101/"):
             continue  # keep bioRxiv (and medRxiv, same DOI prefix)
-        authors, aff = [], ""
+        authors, aff, all_affs = [], "", set()
         for au in (r.get("authorList") or {}).get("author", []):
             name = f"{au.get('lastName', '')} {au.get('initials', '')}".strip() or au.get("fullName") or au.get("collectiveName", "")
             if name:
                 authors.append(name)
             details = (au.get("authorAffiliationDetailsList") or {}).get("authorAffiliation", [])
+            all_affs.update(d.get("affiliation", "") for d in details if d.get("affiliation"))
             if details and details[0].get("affiliation"):
                 aff = details[0]["affiliation"]  # ends up as the last author's
         abstract = re.sub(r"<[^>]+>", "", r.get("abstractText") or "")
@@ -297,6 +367,7 @@ def epmc_preprints():
             "abstract": abstract, "date": r.get("firstPublicationDate") or "",
             "authors": authors, "institution": short_inst(aff),
             "server": (r.get("bookOrReportDetails") or {}).get("publisher") or "bioRxiv",
+            "affiliations": " | ".join(sorted(all_affs)),
         })
     return out
 
@@ -383,6 +454,7 @@ def main():
                 "abstract": p["abstract"], "journal": p["server"], "date": p["date"],
                 "authors": p["authors"], "institution": p["institution"],
                 "published_doi": p["published"], "preprint": None,
+                "affiliations": p.get("affiliations", ""), "mesh": [],
             })
     log(f"Merged {merged} preprints with their published version")
     for a in articles:
@@ -391,6 +463,7 @@ def main():
             "abstract": a["abstract"], "journal": a["journal"], "date": a["date"],
             "authors": a["authors"], "institution": a["institution"], "published_doi": "",
             "preprint": a["preprint"], "pubtypes": a["pubtypes"],
+            "affiliations": a["affiliations"], "mesh": a["mesh"],
         })
 
     def excluded(e):
@@ -402,9 +475,16 @@ def main():
     log(f"Excluded {before - len(entries)} entries via curation/exclude.txt")
 
     for e in entries:
-        e["facilities"] = facilities(f"{e['title']} {e['abstract']}")
+        e["facilities"] = facilities(f"{e['title']} {e['abstract']}", e.pop("affiliations", ""))
         e["curated"] = bool({(e["pmid"] or "").lower(), (e["doi"] or "").lower()} & include)
+        keep, bio, other = relevance(f"{e['title']} {e['abstract']} {' '.join(e.pop('mesh', []))}")
+        e["status"] = "shown" if (keep or e["curated"]) else "review"
+        e["bio_terms"], e["other_terms"] = bio, other
     entries.sort(key=lambda e: e["date"] or "", reverse=True)
+    n_review = sum(e["status"] == "review" for e in entries)
+    log(f"Relevance: {len(entries) - n_review} shown, {n_review} sent to review")
+    fac = sum(bool(e["facilities"]) for e in entries)
+    log(f"Facility found for {fac}/{len(entries)} papers")
 
     json.dump({
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),

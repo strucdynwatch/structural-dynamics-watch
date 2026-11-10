@@ -10,11 +10,12 @@ const data = FileAttachment("data/papers.json").json();
 ```
 
 ```js
-const papers = data.papers;
+const papers = data.papers.filter((p) => p.status === "shown");
+const inReview = data.papers.length - papers.length;
 const today = new Date(data.generated);
 const daysAgo = (d) => (today - new Date(d)) / 864e5;
 const years = [...new Set(papers.map((p) => (p.date || "").slice(0, 4)).filter(Boolean))].sort().reverse();
-const facilityList = [...new Set(papers.flatMap((p) => p.facilities))].sort();
+const facilityList = [...new Set(papers.flatMap((p) => p.facilities.map((f) => f.name)))].sort();
 ```
 
 <div class="grid grid-cols-4">
@@ -50,7 +51,7 @@ const matches = papers.filter((p) => {
   if (/^\d{4}$/.test(period) && !(p.date || "").startsWith(period)) return false;
   if (kind === "Published" && p.type !== "article") return false;
   if (kind === "Preprints only" && p.type !== "preprint") return false;
-  if (facility && !p.facilities.includes(facility)) return false;
+  if (facility && !p.facilities.some((f) => f.name === facility)) return false;
   if (picked.institution && p.institution !== picked.institution) return false;
   if (words.length) {
     const hay = `${p.title} ${p.authors.join(" ")} ${p.abstract} ${p.journal} ${p.institution}`.toLowerCase();
@@ -87,15 +88,20 @@ function paper(p) {
     p.preprint && html`<span class="also"><span class="badge pre">Preprint</span> ${link(`https://doi.org/${p.preprint.doi}`, `${p.preprint.server}, ${p.preprint.date}`)}</span>`,
     p.published_doi && html`<span class="also"><span class="badge pub">Published</span> ${link(`https://doi.org/${p.published_doi}`, "journal version")}</span>`
   ].filter(Boolean);
-  const extra = [
-    p.institution && html`<a href="#" class="quiet" title="Show only papers from this institution" onclick=${(e) => { e.preventDefault(); pick("institution", p.institution); }}>${p.institution}</a>`,
-    ...p.facilities.map((f) => html`<a href="#" class="quiet" title="Show only papers mentioning this facility" onclick=${(e) => { e.preventDefault(); pick("facility", f); }}>${f}</a>`)
-  ].filter(Boolean);
+  const extra = p.facilities.map((f) => html`<a href="#" class="quiet"
+      title=${f.via === "abstract" ? "Named in the abstract. Click to show only papers with this facility" : "A co-author is affiliated with this facility. Click to show only papers with this facility"}
+      onclick=${(e) => { e.preventDefault(); pick("facility", f.name); }}>${f.name}${f.via === "affiliation" ? "*" : ""}</a>`);
+  const authors = html`<details class="authpop"><summary title="Click for full author list and institution">${authorLine(p.authors)}</summary>
+    <div class="pop">
+      ${p.institution ? html`<div><span class="lbl">Last author's institution</span><br>${p.institution}
+        <a href="#" onclick=${(e) => { e.preventDefault(); pick("institution", p.institution); }}>show all papers from here</a></div>` : ""}
+      <div><span class="lbl">All authors</span><br>${p.authors.join(", ")}</div>
+    </div></details>`;
   return html`<article class="paper">
     <div class="meta">${p.date} · ${status} ${p.journal}</div>
     <h3>${doiUrl ? link(doiUrl, p.title) : p.title}</h3>
-    <div class="authors" title=${p.authors.join(", ")}>${authorLine(p.authors)}</div>
-    ${extra.length ? html`<div class="extra">${extra.flatMap((x, i) => (i ? [" · ", x] : [x]))}</div>` : ""}
+    <div class="authors">${authors}</div>
+    ${extra.length ? html`<div class="extra">Facility: ${extra.flatMap((x, i) => (i ? [", ", x] : [x]))}</div>` : ""}
     <div class="links">${links.flatMap((x, i) => (i ? [" · ", x] : [x]))}</div>
     ${p.abstract ? html`<details><summary>Abstract</summary><p>${p.abstract}</p></details>` : ""}
   </article>`;
@@ -104,7 +110,7 @@ display(html`<div>${matches.slice(0, shown).map(paper)}</div>`);
 if (matches.length > shown) display(html`<button class="more" onclick=${showMore}>Show 50 more</button>`);
 ```
 
-<p class="muted small">Updated ${data.generated.slice(0, 10)}. Sources: PubMed and bioRxiv (via Europe PMC). Searches titles and abstracts; facilities are detected from the abstract and may be incomplete.</p>
+<p class="muted small">Updated ${data.generated.slice(0, 10)}. Sources: PubMed and bioRxiv (via Europe PMC). Searches titles and abstracts. Facilities come from the abstract or, marked *, from co-author affiliations, and may be incomplete. ${inReview.toLocaleString("en-US")} further search hits that look like chemistry, materials or instrumentation are held for review.</p>
 
 <style>
 .big { font-size: 2rem; font-weight: 600; }
@@ -125,4 +131,13 @@ details p { font-size: 0.9rem; line-height: 1.5; }
 .chip { margin-left: 0.5rem; font-size: 0.8rem; border: 1px solid var(--theme-foreground-faint); border-radius: 1rem; background: none; padding: 0.1rem 0.6rem; cursor: pointer; }
 .more { margin: 1rem 0; padding: 0.4rem 1rem; cursor: pointer; }
 .small { font-size: 0.8rem; }
+.authpop { display: inline; position: relative; }
+.authpop summary { list-style: none; cursor: pointer; display: inline; }
+.authpop summary::-webkit-details-marker { display: none; }
+.authpop summary:hover { text-decoration: underline dotted; }
+.authpop .pop { position: absolute; z-index: 10; left: 0; top: 1.4rem; width: min(520px, 85vw); background: var(--theme-background);
+  border: 1px solid var(--theme-foreground-faintest); border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  padding: 0.6rem 0.8rem; font-size: 0.8rem; line-height: 1.45; color: var(--theme-foreground); display: grid; gap: 0.5rem; }
+.authpop .lbl { color: var(--theme-foreground-faint); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.authpop .pop a { font-size: 0.78rem; }
 </style>
