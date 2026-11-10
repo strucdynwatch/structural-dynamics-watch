@@ -1,0 +1,7 @@
+# Papers to REMOVE from the feed (false hits of the automatic search).
+# One per line: a PubMed ID or a DOI. Anything after # is ignored, so you can
+# add a short reason, e.g.:  12345678  # XFEL spectroscopy, no crystallography
+#
+# To edit in the browser: open this file on GitHub, click the pencil icon,
+# add a line, then "Commit changes". The site rebuilds within a few minutes.
+

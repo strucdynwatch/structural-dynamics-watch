@@ -1,0 +1,7 @@
+# Papers to ADD to the feed that the automatic search misses.
+# One per line: a PubMed ID (e.g. 25525250) or a DOI (e.g. 10.1126/science.1259357).
+# bioRxiv DOIs (10.1101/...) work too. Anything after # is ignored.
+#
+# To edit in the browser: open this file on GitHub, click the pencil icon,
+# add a line, then "Commit changes". The site rebuilds within a few minutes.
+
